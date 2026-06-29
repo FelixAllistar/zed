@@ -465,6 +465,24 @@ impl ListState {
         self.splice_focusable(old_range, (0..count).map(|_| None))
     }
 
+    /// Inform the list state that the items in `old_range` have been replaced
+    /// by new items with estimated sizes.
+    ///
+    /// The supplied size hints are used until each item is measured. This is
+    /// useful for variable-height virtualized lists that keep their own layout
+    /// cache and want to preserve scroll position before rows enter the
+    /// viewport.
+    pub fn splice_with_size_hints(
+        &self,
+        old_range: Range<usize>,
+        size_hints: impl IntoIterator<Item = Option<Size<Pixels>>>,
+    ) {
+        self.splice_focusable_with_size_hints(
+            old_range,
+            size_hints.into_iter().map(|size_hint| (size_hint, None)),
+        );
+    }
+
     /// Register with the list state that the items in `old_range` have been replaced
     /// by new items. As opposed to [`Self::splice`], this method allows an iterator of optional focus handles
     /// to be supplied to properly integrate with items in the list that can be focused. If a focused item
@@ -474,6 +492,24 @@ impl ListState {
         old_range: Range<usize>,
         focus_handles: impl IntoIterator<Item = Option<FocusHandle>>,
     ) {
+        self.splice_focusable_with_size_hints(
+            old_range,
+            focus_handles
+                .into_iter()
+                .map(|focus_handle| (None, focus_handle)),
+        )
+    }
+
+    /// Register with the list state that the items in `old_range` have been
+    /// replaced by new items with estimated sizes and optional focus handles.
+    ///
+    /// This combines [`Self::splice_focusable`] with size hints for clients
+    /// that maintain a row-height cache.
+    pub fn splice_focusable_with_size_hints(
+        &self,
+        old_range: Range<usize>,
+        items: impl IntoIterator<Item = (Option<Size<Pixels>>, Option<FocusHandle>)>,
+    ) {
         let state = &mut *self.0.borrow_mut();
 
         let mut old_items = state.items.cursor::<Count>(());
@@ -482,10 +518,10 @@ impl ListState {
 
         let mut spliced_count = 0;
         new_items.extend(
-            focus_handles.into_iter().map(|focus_handle| {
+            items.into_iter().map(|(size_hint, focus_handle)| {
                 spliced_count += 1;
                 ListItem::Unmeasured {
-                    size_hint: None,
+                    size_hint,
                     focus_handle,
                 }
             }),
@@ -507,6 +543,50 @@ impl ListState {
                 *item_ix = *item_ix - (old_range.end - old_range.start) + spliced_count;
             }
         }
+    }
+
+    /// Update an unmeasured item's estimated size without forcing
+    /// remeasurement. If the item is already measured, its current measured
+    /// size remains authoritative.
+    pub fn set_item_size_hint(&self, index: usize, size_hint: Option<Size<Pixels>>) {
+        self.set_item_size_hints(index, [size_hint]);
+    }
+
+    /// Update estimated sizes for a contiguous range of unmeasured items
+    /// without forcing remeasurement. Already measured items keep their
+    /// current measured size.
+    pub fn set_item_size_hints(
+        &self,
+        start: usize,
+        size_hints: impl IntoIterator<Item = Option<Size<Pixels>>>,
+    ) {
+        let state = &mut *self.0.borrow_mut();
+        let mut old_items = state.items.cursor::<Count>(());
+        let mut new_items = old_items.slice(&Count(start), Bias::Right);
+
+        for (offset, size_hint) in size_hints.into_iter().enumerate() {
+            old_items.seek_forward(&Count(start + offset), Bias::Right);
+            let Some(item) = old_items.item() else {
+                break;
+            };
+
+            let updated_item = match item {
+                ListItem::Unmeasured { focus_handle, .. } => ListItem::Unmeasured {
+                    size_hint,
+                    focus_handle: focus_handle.clone(),
+                },
+                ListItem::Measured { size, focus_handle } => ListItem::Measured {
+                    size: *size,
+                    focus_handle: focus_handle.clone(),
+                },
+            };
+            new_items.extend([updated_item], ());
+            old_items.next();
+        }
+
+        new_items.append(old_items.suffix(), ());
+        drop(old_items);
+        state.items = new_items;
     }
 
     /// Set a handler that will be called when the list is scrolled.
