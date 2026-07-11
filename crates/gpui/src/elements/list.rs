@@ -864,6 +864,16 @@ impl ListState {
 }
 
 impl StateInner {
+    fn request_layout_width(&self) -> Option<Pixels> {
+        self.last_layout_bounds
+            .map(|bounds| bounds.size.width)
+            .or_else(|| {
+                self.items
+                    .iter()
+                    .find_map(|item| item.size_hint().map(|size| size.width))
+            })
+    }
+
     fn max_scroll_offset(&self) -> Pixels {
         let bounds = self.last_layout_bounds.unwrap_or_default();
         let height = self
@@ -1431,7 +1441,7 @@ impl Element for List {
                     );
 
                     let layout_response = state.layout_items(
-                        None,
+                        state.request_layout_width(),
                         available_height,
                         &padding,
                         &mut self.render_item,
@@ -1672,9 +1682,24 @@ mod test {
     use std::rc::Rc;
 
     use crate::{
-        self as gpui, AppContext, Context, Element, FollowMode, IntoElement, ListState, Render,
-        Styled, TestAppContext, Window, div, list, point, px, size,
+        self as gpui, AppContext, Bounds, Context, Element, FollowMode, IntoElement, ListState,
+        Render, Styled, TestAppContext, Window, div, list, point, px, size,
     };
+
+    #[test]
+    fn request_layout_width_prefers_bounds_then_size_hints() {
+        let state = ListState::new(0, crate::ListAlignment::Top, px(10.));
+        assert_eq!(state.0.borrow().request_layout_width(), None);
+
+        state.splice_with_size_hints(0..0, [Some(size(px(960.), px(120.)))]);
+        assert_eq!(state.0.borrow().request_layout_width(), Some(px(960.)));
+
+        state.0.borrow_mut().last_layout_bounds = Some(Bounds {
+            origin: point(px(0.), px(0.)),
+            size: size(px(1440.), px(900.)),
+        });
+        assert_eq!(state.0.borrow().request_layout_width(), Some(px(1440.)));
+    }
 
     #[gpui::test]
     fn test_reset_after_paint_before_scroll(cx: &mut TestAppContext) {
