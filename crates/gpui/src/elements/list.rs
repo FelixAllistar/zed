@@ -13,6 +13,11 @@ use crate::{
     Overflow, Pixels, Point, ScrollDelta, ScrollWheelEvent, Size, Style, StyleRefinement, Styled,
     Window, point, px, size,
 };
+
+// List rows have a definite inline size but an unconstrained block size. Asking
+// flex layouts for their minimum intrinsic block size can dramatically inflate
+// nested row content; max-content is the row's natural wrapped height.
+const INTRINSIC_ITEM_HEIGHT: AvailableSpace = AvailableSpace::MaxContent;
 use collections::VecDeque;
 use refineable::Refineable as _;
 use std::{cell::RefCell, ops::Range, rc::Rc};
@@ -999,7 +1004,7 @@ impl StateInner {
         let mut cursor = self.items.cursor::<Count>(());
         let available_item_space = size(
             AvailableSpace::Definite(available_width),
-            AvailableSpace::MinContent,
+            INTRINSIC_ITEM_HEIGHT,
         );
 
         let mut measured_items = Vec::default();
@@ -1049,7 +1054,7 @@ impl StateInner {
             available_width.map_or(AvailableSpace::MinContent, |width| {
                 AvailableSpace::Definite(width)
             }),
-            AvailableSpace::MinContent,
+            INTRINSIC_ITEM_HEIGHT,
         );
 
         let mut cursor = old_items.cursor::<Count>(());
@@ -1305,7 +1310,7 @@ impl StateInner {
                                 let size = item.size().unwrap_or_else(|| {
                                     let mut item = render_item(cursor.start().0, window, cx);
                                     let item_available_size =
-                                        size(bounds.size.width.into(), AvailableSpace::MinContent);
+                                        size(bounds.size.width.into(), INTRINSIC_ITEM_HEIGHT);
                                     item.layout_as_root(item_available_size, window, cx)
                                 });
                                 height -= size.height;
