@@ -981,7 +981,6 @@ impl StateInner {
     fn layout_all_items(
         &mut self,
         available_width: Pixels,
-        available_height: Pixels,
         render_item: &mut RenderItemFn,
         window: &mut Window,
         cx: &mut App,
@@ -1001,7 +1000,7 @@ impl StateInner {
         let mut cursor = self.items.cursor::<Count>(());
         let available_item_space = size(
             AvailableSpace::Definite(available_width),
-            AvailableSpace::Definite(available_height),
+            AvailableSpace::MinContent,
         );
 
         let mut measured_items = Vec::default();
@@ -1051,7 +1050,7 @@ impl StateInner {
             available_width.map_or(AvailableSpace::MinContent, |width| {
                 AvailableSpace::Definite(width)
             }),
-            AvailableSpace::Definite(available_height),
+            AvailableSpace::MinContent,
         );
 
         let mut cursor = old_items.cursor::<Count>(());
@@ -1257,13 +1256,7 @@ impl StateInner {
         window.transact(|window| {
             match self.measuring_behavior {
                 ListMeasuringBehavior::Measure(has_measured) if !has_measured => {
-                    self.layout_all_items(
-                        bounds.size.width,
-                        bounds.size.height,
-                        render_item,
-                        window,
-                        cx,
-                    );
+                    self.layout_all_items(bounds.size.width, render_item, window, cx);
                 }
                 _ => {}
             }
@@ -1312,10 +1305,8 @@ impl StateInner {
 
                                 let size = item.size().unwrap_or_else(|| {
                                     let mut item = render_item(cursor.start().0, window, cx);
-                                    let item_available_size = size(
-                                        bounds.size.width.into(),
-                                        AvailableSpace::Definite(bounds.size.height),
-                                    );
+                                    let item_available_size =
+                                        size(bounds.size.width.into(), AvailableSpace::MinContent);
                                     item.layout_as_root(item_available_size, window, cx)
                                 });
                                 height -= size.height;
